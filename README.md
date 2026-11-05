@@ -1,3 +1,5 @@
+«Prototipo sviluppato durante il tirocinio formativo presso Cinetix Group, con finalità di apprendimento e dimostrazione delle competenze tecniche acquisite.»
+
 # ChainSense2
 
 ChainSense2 è un progetto sviluppato durante un tirocinio per acquisire, validare, memorizzare e visualizzare dati provenienti da un dispositivo **Chain2Gate**.
