@@ -271,4 +271,6 @@ Progetto realizzato nell'ambito di un tirocinio.
 
 ## Licenza
 
-La licenza del progetto non è ancora stata definita. Fino alla pubblicazione di un file `LICENSE`, il codice non deve essere considerato distribuito con una licenza open source.
+Il codice sorgente di ChainSense2 è distribuito sotto licenza MIT. Per maggiori informazioni, consultare il file [LICENSE](LICENSE).
+
+Il progetto è stato sviluppato da Mattia Floriani durante il tirocinio formativo presso Cinetix Group nel 2026.
