@@ -1,219 +1,274 @@
 # ChainSense2
 
-Sistema di monitoraggio della potenza elettrica basato su **ESP32** e
-**Chain2Gate Engine**. Il progetto riceve le Compact Frame provenienti da un
-contatore Open Meter, ne verifica l'integrità, estrae la potenza istantanea e
-mostra le misurazioni su un display OLED e su una dashboard web.
+ChainSense2 è un progetto sviluppato durante un tirocinio per acquisire, validare, memorizzare e visualizzare dati provenienti da un dispositivo **Chain2Gate**.
 
-Il progetto è stato sviluppato da **Mattia Floriani** durante il tirocinio
-formativo presso **Cinetix Group**, nell'anno scolastico 2026/2027.
+Il sistema utilizza un **ESP32** come interfaccia hardware: il firmware comunica con Chain2Gate tramite UART, gestisce lo scambio delle Compact Frame **CF3** e **CF21**, mostra lo stato su un display OLED e inoltra i dati al computer in formato JSON. Sul computer, una serie di script Python salva le misure in un database SQLite e le rende consultabili tramite una dashboard Streamlit.
 
-## Funzionalità
-
-- ricezione delle Compact Frame tramite protocollo CCP su UART;
-- verifica del checksum e invio di risposte ACK/NACK;
-- riconoscimento delle frame CF3 e CF21;
-- visualizzazione della potenza su display OLED SH1106;
-- segnalazione dello stato tramite LED;
-- invio delle misurazioni dall'ESP32 al computer in formato JSON;
-- salvataggio dello storico in un database SQLite;
-- dashboard Streamlit con grafici, statistiche ed esportazione CSV.
-
-## Architettura
+## Architettura del sistema
 
 ```text
-Contatore Open Meter
-        |
-        v
-Chain2Gate Engine
-        | UART / CCP
-        v
-      ESP32 --------> Display OLED e LED di stato
-        |
-        | USB seriale / JSON
-        v
-Acquisizione Python
-        |
-        v
- Database SQLite
-        |
-        v
-Dashboard Streamlit
+Chain2Gate
+    │
+    │ UART 115200 baud, 8N1
+    ▼
+ESP32 ───► display OLED
+    │
+    │ USB seriale / JSON
+    ▼
+serial_reader.py
+    │
+    ▼
+storage.py ───► python/data/chainsense.db
+                         │
+                         ▼
+                  dashboard.py
+                         │
+                         ▼
+                 dashboard Streamlit
 ```
 
-Esempio di dato inviato dal firmware:
+## Funzionalità principali
+
+- comunicazione seriale tra ESP32 e Chain2Gate;
+- macchina a stati per la gestione ordinata del protocollo;
+- invio della Compact Frame CF3;
+- ricezione e validazione della Compact Frame CF21;
+- gestione delle risposte ACK e NACK;
+- visualizzazione dello stato operativo su display OLED;
+- invio dei dati acquisiti al computer in formato JSON;
+- lettura continua della porta seriale tramite Python;
+- persistenza delle acquisizioni in un database SQLite;
+- dashboard web realizzata con Streamlit e pandas;
+- esecuzione opzionale della sola dashboard tramite Docker Compose.
+
+## Componenti hardware
+
+- scheda di sviluppo ESP32;
+- dispositivo Chain2Gate;
+- display OLED I²C;
+- collegamento USB tra ESP32 e computer;
+- collegamenti UART e massa comune tra ESP32 e Chain2Gate.
+
+### Collegamenti
+
+| Funzione | ESP32 | Dispositivo collegato |
+| --- | --- | --- |
+| UART RX | GPIO 16 | TX Chain2Gate |
+| UART TX | GPIO 17 | RX Chain2Gate |
+| I²C SDA | GPIO 21 | SDA OLED |
+| I²C SCL | GPIO 22 | SCL OLED |
+| Riferimento elettrico | GND | GND Chain2Gate e OLED |
+
+> Prima dell'accensione verificare i livelli logici e il pinout della specifica versione hardware di Chain2Gate. TX e RX devono essere incrociati e i dispositivi devono condividere la massa.
+
+## Comunicazione seriale e protocollo
+
+La comunicazione ESP32–Chain2Gate usa i seguenti parametri:
+
+- velocità: **115200 baud**;
+- formato: **8N1** (8 bit dati, nessuna parità, 1 bit di stop);
+- controllo di flusso: non previsto.
+
+Il firmware è organizzato come una macchina a stati. In sintesi:
+
+1. inizializza UART e display OLED;
+2. prepara e invia una Compact Frame CF3;
+3. attende la risposta del dispositivo;
+4. interpreta ACK o NACK;
+5. riceve la Compact Frame CF21;
+6. controlla struttura, lunghezza e validità della frame;
+7. estrae i dati utili e li pubblica sulla seriale USB in formato JSON;
+8. aggiorna l'OLED e torna nello stato di attesa o ripete l'operazione in caso di errore.
+
+La separazione in stati evita attese bloccanti e rende più chiara la gestione di timeout, frame incomplete e risposte non valide.
+
+## Formato dei dati
+
+Le acquisizioni vengono inviate dall'ESP32 al computer come oggetti JSON, uno per riga. Questo permette a `serial_reader.py` di distinguere i messaggi diagnostici dai record validi, decodificare i dati e passarli al livello di persistenza.
+
+Il contenuto effettivo del record dipende dai campi estratti dalla CF21. In forma generale:
 
 ```json
-{"cf": 21, "potenza_w": 1250}
+{
+  "tipo_frame": "CF21",
+  "stato": "valida",
+  "dati": {}
+}
 ```
 
-## Componenti principali
-
-- ESP32 DOIT DevKit V1;
-- modulo Chain2Gate Engine GRID Edition;
-- display OLED SH1106 128x64 con interfaccia I2C;
-- un LED giallo e un LED rosso;
-- computer con Python 3 e collegamento USB all'ESP32.
-
-## Collegamenti ESP32
-
-| Funzione | Pin ESP32 |
-| --- | ---: |
-| UART2 RX | GPIO 16 |
-| UART2 TX | GPIO 17 |
-| OLED SDA | GPIO 21 |
-| OLED SCL | GPIO 22 |
-| LED rosso | GPIO 12 |
-| LED giallo | GPIO 14 |
-
-La UART del firmware è configurata a **115200 baud, 8N1**.
-
-## Struttura del progetto
+## Struttura del repository
 
 ```text
 ChainSense2/
-|-- firmware/
-|   |-- platformio.ini
-|   `-- src/
-|       `-- main .cpp
-|-- python/
-|   |-- dashboard.py
-|   |-- serial_reader.py
-|   |-- storage.py
-|   `-- test_database.py
-|-- Dockerfile/
-|   |-- Dockerfile
-|   |-- compose.yaml
-|   `-- requirements.txt
-|-- .gitignore
-`-- README.md
+├── docs/
+│   └── ChainSense2V3_manualeTecnico.pdf
+├── firmware/
+│   └── src/
+│       └── main.cpp
+├── python/
+│   ├── dashboard.py
+│   ├── serial_reader.py
+│   ├── storage.py
+│   ├── test_database.py
+│   └── data/
+│       └── chainsense.db          # creato durante l'utilizzo
+├── Dockerfile
+├── compose.yaml
+├── requirements.txt
+└── README.md
 ```
 
-## Installazione
+Il manuale tecnico completo è disponibile in [docs/ChainSense2V3_manualeTecnico.pdf](docs/ChainSense2V3_manualeTecnico.pdf).
 
-### 1. Firmware ESP32
+## Installazione del firmware ESP32
 
-Il firmware usa [PlatformIO](https://platformio.org/) e la libreria U8g2,
-già dichiarata in `firmware/platformio.ini`.
+Il firmware si trova in `firmware/src/main.cpp` ed è sviluppato per l'ambiente PlatformIO.
 
-Da Visual Studio Code:
+### Prerequisiti
 
-1. installare l'estensione PlatformIO IDE;
-2. aprire la cartella `firmware` come progetto PlatformIO;
-3. collegare l'ESP32 tramite USB;
-4. compilare e caricare il firmware sulla scheda.
+- Visual Studio Code;
+- estensione PlatformIO IDE, oppure PlatformIO Core da riga di comando;
+- driver USB della scheda ESP32, se richiesto dal sistema operativo.
 
-In alternativa, con PlatformIO Core:
+### Compilazione e caricamento
+
+1. Aprire il progetto firmware con PlatformIO.
+2. Collegare l'ESP32 al computer tramite USB.
+3. Selezionare la scheda e la porta seriale corrette.
+4. Compilare il firmware.
+5. Caricarlo sull'ESP32.
+6. Aprire il monitor seriale alla velocità prevista dalla configurazione del firmware.
+
+Con PlatformIO Core, dalla directory del progetto firmware:
 
 ```bash
-cd firmware
 pio run
 pio run --target upload
+pio device monitor
 ```
 
-> **Nota:** PlatformIO usa normalmente il nome `src/main.cpp`. Se il file non
-> viene rilevato durante la compilazione, rinominare `main .cpp` in `main.cpp`.
+## Installazione dell'ambiente Python
 
-### 2. Ambiente Python
-
-Creare un ambiente virtuale dalla root del progetto:
+È consigliato Python 3 con un ambiente virtuale.
 
 ```bash
-python -m venv .venv
-```
-
-Attivarlo su Windows:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Oppure su Linux/macOS:
-
-```bash
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Installare le dipendenze:
+Il file `requirements.txt`, nella root del repository, contiene:
 
-```bash
-python -m pip install -r Dockerfile/requirements.txt pyserial
+```text
+streamlit
+pandas
+pyserial
 ```
 
-## Utilizzo
+## Acquisizione dei dati
 
-### 1. Configurare la porta seriale
-
-Aprire `python/serial_reader.py` e impostare `PORTA` con la porta assegnata
-all'ESP32. Per esempio:
-
-```python
-PORTA = "COM3"       # Windows
-# PORTA = "/dev/ttyUSB0"  # Linux
-```
-
-La velocità deve rimanere impostata a `115200` baud, come nel firmware.
-
-### 2. Avviare l'acquisizione
-
-Dalla root del progetto eseguire:
+Collegare l'ESP32 al computer, verificare la porta seriale configurata nello script e avviare:
 
 ```bash
 python python/serial_reader.py
 ```
 
-Il programma crea automaticamente il database
-`python/data/chainsense.db` e salva ogni misurazione ricevuta.
+`serial_reader.py` riceve le righe JSON prodotte dal firmware e utilizza `storage.py` per inizializzare e aggiornare il database.
 
-### 3. Avviare la dashboard
+Il database viene creato nel percorso:
 
-In un secondo terminale, con lo stesso ambiente virtuale attivo, eseguire:
-
-```bash
-streamlit run python/dashboard.py
+```text
+python/data/chainsense.db
 ```
 
-La dashboard è disponibile normalmente all'indirizzo
-<http://localhost:8501> e si aggiorna ogni 3 secondi.
+Sia `storage.py` sia `dashboard.py` costruiscono questo percorso a partire dalla directory del rispettivo file:
 
-## Database
+```python
+Path(__file__).resolve().parent / "data" / "chainsense.db"
+```
 
-Le misurazioni sono salvate nella tabella `misurazioni` con i campi seguenti:
+In questo modo l'acquisizione e la dashboard fanno riferimento allo stesso database indipendentemente dalla directory dalla quale vengono avviate.
 
-| Campo | Descrizione |
-| --- | --- |
-| `id` | identificativo progressivo |
-| `timestamp` | data e ora della ricezione |
-| `cf` | tipo di Compact Frame ricevuta |
-| `potenza_w` | potenza istantanea in watt |
-
-Per visualizzare rapidamente gli ultimi dieci record:
+Per verificare separatamente la creazione e l'accesso al database:
 
 ```bash
 python python/test_database.py
 ```
 
-## Docker
+## Avvio della dashboard
 
-La cartella `Dockerfile` contiene una prima configurazione per eseguire la
-dashboard in un container. Prima dell'uso è necessario allineare il contesto
-di build con i file presenti in `python/`, poiché il Dockerfile copia
-`dashboard.py` dal proprio contesto mentre il file si trova attualmente in
-un'altra cartella.
+Dopo aver installato le dipendenze e creato il database:
 
-## Stato del progetto
+```bash
+streamlit run python/dashboard.py
+```
 
-ChainSense2 è in fase di sviluppo. Le funzionalità principali di acquisizione,
-salvataggio e visualizzazione sono già presenti; configurazione Docker, test
-automatici e gestione della porta seriale tramite configurazione esterna sono
-ancora da completare.
+Streamlit mostra nel terminale l'indirizzo locale della dashboard, normalmente:
+
+```text
+http://localhost:8501
+```
+
+La dashboard legge `python/data/chainsense.db`, elabora i dati con pandas e presenta le acquisizioni in forma consultabile.
+
+## Dashboard con Docker
+
+Il repository include un `Dockerfile` e un file `compose.yaml` per eseguire la dashboard in un container.
+
+Il `Dockerfile` copia `python/dashboard.py` in:
+
+```text
+/app/dashboard.py
+```
+
+La dashboard cerca quindi il database in `/app/data/chainsense.db`. Docker Compose collega a tale directory il database presente sul computer:
+
+```yaml
+volumes:
+  - ./python/data:/app/data:ro
+```
+
+Il suffisso `:ro` rende il database accessibile al container in sola lettura. La porta è pubblicata soltanto sull'interfaccia locale:
+
+```yaml
+ports:
+  - "127.0.0.1:8501:8501"
+```
+
+Quando Docker è disponibile, la dashboard può essere costruita e avviata dalla root del repository con:
+
+```bash
+docker compose up --build
+```
+
+Quindi può essere aperta all'indirizzo [http://127.0.0.1:8501](http://127.0.0.1:8501).
+
+> La cartella `python/data/` e il database `chainsense.db` devono esistere prima dell'avvio del container. Docker non è installato sul laptop usato per lo sviluppo: la configurazione è stata predisposta, ma non è ancora stata verificata in esecuzione su tale macchina.
+
+## Stato dello sviluppo
+
+Il progetto comprende:
+
+- firmware ESP32 per la comunicazione con Chain2Gate;
+- gestione CF3, CF21, ACK/NACK e validazione delle frame;
+- uscita JSON sulla seriale USB;
+- acquisizione e persistenza tramite Python e SQLite;
+- dashboard Streamlit;
+- configurazione Docker della dashboard;
+- manuale tecnico V3.
+
+Il lavoro è in fase di sviluppo e validazione. In particolare, l'esecuzione tramite Docker resta da provare su un sistema dotato di Docker.
+
+## Documentazione
+
+Per la descrizione dettagliata dell'hardware, del protocollo, della macchina a stati, del formato delle frame e delle prove svolte, consultare il [manuale tecnico V3](docs/ChainSense2V3_manualeTecnico.pdf).
 
 ## Autore
 
-**Mattia Floriani**  
-Istituto Marie Curie, Pergine Valsugana (TN)  
-Tirocinio formativo presso Cinetix Group, Borgo Valsugana (TN)
+**Mattia**  
+Progetto realizzato nell'ambito di un tirocinio.
 
 ## Licenza
 
-Non è ancora stata definita una licenza per il progetto.
+La licenza del progetto non è ancora stata definita. Fino alla pubblicazione di un file `LICENSE`, il codice non deve essere considerato distribuito con una licenza open source.
