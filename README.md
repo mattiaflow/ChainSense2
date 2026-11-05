@@ -1,4 +1,4 @@
-«Prototipo sviluppato durante il tirocinio formativo presso Cinetix Group, con finalità di apprendimento e dimostrazione delle competenze tecniche acquisite.»
+
 
 # ChainSense2
 
